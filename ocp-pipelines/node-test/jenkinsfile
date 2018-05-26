@@ -1,0 +1,106 @@
+def gitUrl = 'https://github.com/tedsluis/automated-testing.git'
+    project = 'testing'
+    now = System.currentTimeMillis()
+pipeline {
+agent any
+stages {
+	stage('Clean workspace') {
+		steps {
+			deleteDir()
+		}
+	}
+
+	stage('List all env vars - REMOVE AFTER TESTING!'){
+		steps {
+			echo sh(returnStdout: true, script: 'env')
+		}
+	}
+
+	stage('Check current state') {
+		steps {
+			sh "oc get all -n ${project}"
+		}
+	}
+    
+    	stage('Check cluster URLs') {
+		steps {
+                	sh 'curl --insecure -v https://internal-master:8443/healthz/ready'
+                	sh 'curl --insecure -v https://master:8443/healthz/ready'
+                	sh 'curl --insecure -v https://docker-registry.wildcard/healthz'
+                	sh 'curl --insecure -v https://docker-registry.external/v2/_catalog'
+		}
+        }
+
+        stage('Clean up previous apps') {
+			steps {
+	                	sh "oc delete -n ${project} bc -lapp=red"
+        	        	sh "oc delete -n ${project} bc -lapp=blue"
+                		sh "oc delete -n ${project} bc -lapp=yellow"
+                        sh "oc delete -n ${project} bc -lapp=nginx"
+                		sh "oc delete -n ${project} dc -lapp=red"
+	                	sh "oc delete -n ${project} dc -lapp=blue"
+        	        	sh "oc delete -n ${project} dc -lapp=yellow"
+                		sh "oc delete -n ${project} dc -lapp=nginx"
+                		sh "oc delete -n ${project} service -lapp=red"
+	                	sh "oc delete -n ${project} service -lapp=blue"
+        	        	sh "oc delete -n ${project} service -lapp=yellow"
+                		sh "oc delete -n ${project} service -lapp=nginx"
+                		sh "oc delete -n ${project} is red    || true"
+	                	sh "oc delete -n ${project} is blue   || true"
+        	        	sh "oc delete -n ${project} is yellow || true"
+                		sh "oc delete -n ${project} is nginx  || true"
+                		sh "oc delete -n ${project} route nginx || true"
+                                timeout(time: 1, unit: 'MINUTES') {
+                                sh "while [ `oc get pods -n ${project} -lapp=blue   2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 0 ];do sleep 5; done"
+                                sh "while [ `oc get pods -n ${project} -lapp=red    2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 0 ];do sleep 5; done"
+                                sh "while [ `oc get pods -n ${project} -lapp=yellow 2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 0 ];do sleep 5; done"
+                                sh "while [ `oc get pods -n ${project} -lapp=nginx  2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 0 ];do sleep 5; done"
+                                }
+			}
+        }
+        
+
+        stage('Check if everything is removed') {
+		steps {
+                	sh "oc get all -n ${project}"
+		}
+        }
+
+        stage('new-app red, blue and yellow') {
+		steps {
+	                sh "oc new-app -n ${project} https://github.com/tedsluis/red-yellow-and-blue.git --context-dir=red --name=red"
+        	        sh "oc new-app -n ${project} https://github.com/tedsluis/red-yellow-and-blue.git --context-dir=blue --name=blue"
+                	sh "oc new-app -n ${project} https://github.com/tedsluis/red-yellow-and-blue.git --context-dir=yellow --name=yellow"
+                    sh "oc new-app -n ${project} https://github.com/tedsluis/red-yellow-and-blue.git --context-dir=ubuntu.nginx --name=nginx"
+                        timeout(time: 7, unit: 'MINUTES') {
+                        sh "sleep 5"
+                        sh "while [ `oc get pods -n ${project} -lapp=blue   2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 1 ];do sleep 10; done"
+                        sh "while [ `oc get pods -n ${project} -lapp=red    2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 1 ];do sleep 10; done"
+                        sh "while [ `oc get pods -n ${project} -lapp=yellow 2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 1 ];do sleep 10; done"
+                        sh "while [ `oc get pods -n ${project} -lapp=nginx  2>/dev/null | grep Running | cut -d' ' -f1 | wc -w` != 1 ];do sleep 10; done"
+                        }
+		}
+        }
+
+        stage('create route') {
+		steps {
+                	sh "oc expose -n ${project} service nginx"
+		}
+        }
+
+        stage('Test nodes') {
+		steps {
+                        timeout(time: 4, unit: 'MINUTES') {
+                        sh '''#!/bin/bash -l
+                        while read nodename; do 
+echo $nodename
+#oc patch -n ${project}  dc/blue --patch '{"spec":{"template":{"spec":{"nodeSelector":{"kubernetes.io/hostname":"$nodename"}}}}}'
+#oc get pods -o wide -n ${project} -lapp=blue   2>/dev/null | grep Running | grep $nodename | cut -d' ' -f1 | wc -w` != 1 ];do sleep 10; done
+                        done < <(oc get nodes -lregion=primary,environment=testing | grep atom | cut -d' ' -f1)
+                        '''
+                        }
+		}
+        }
+
+}
+}
