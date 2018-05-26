@@ -1,0 +1,64 @@
+def gitUrl = 'https://github.com/tedsluis/automated-testing.git'
+    project = 'testing'
+    now = System.currentTimeMillis()
+pipeline {
+agent any
+stages {
+	stage('Clean workspace') {
+		steps {
+			deleteDir()
+		}
+	}
+
+	stage('List all env vars - REMOVE AFTER TESTING!'){
+		steps {
+			echo sh(returnStdout: true, script: 'env')
+		}
+	}
+
+	stage('Check current state') {
+		steps {
+			sh "oc get all -n ${project}"
+		}
+	}
+    
+    	stage('Check cluster URLs') {
+		steps {
+                	sh 'curl --insecure -v https://internal-master:8443/healthz/ready'
+                	sh 'curl --insecure -v https://master:8443/healthz/ready'
+                	sh 'curl --insecure -v https://docker-registry.wildcard/healthz'
+                	sh 'curl --insecure -v https://docker-registry.external/v2/_catalog'
+		}
+        }
+
+        stage('Clean up previous apps') {
+			steps {
+	                	sh "oc delete -n ${project} bc -lapp=red"
+        	        	sh "oc delete -n ${project} bc -lapp=blue"
+                		sh "oc delete -n ${project} bc -lapp=yellow"
+                        sh "oc delete -n ${project} bc -lapp=nginx"
+                		sh "oc delete -n ${project} dc -lapp=red"
+	                	sh "oc delete -n ${project} dc -lapp=blue"
+        	        	sh "oc delete -n ${project} dc -lapp=yellow"
+                		sh "oc delete -n ${project} dc -lapp=nginx"
+                		sh "oc delete -n ${project} service -lapp=red"
+	                	sh "oc delete -n ${project} service -lapp=blue"
+        	        	sh "oc delete -n ${project} service -lapp=yellow"
+                		sh "oc delete -n ${project} service -lapp=nginx"
+                		sh "oc delete -n ${project} is -lapp=red"
+	                	sh "oc delete -n ${project} is -lapp=blue"
+        	        	sh "oc delete -n ${project} is -lapp=yellow"
+                		sh "oc delete -n ${project} is -lapp=nginx"
+                		sh "oc delete -n ${project} route nginx || true"
+			}
+        }
+        
+
+        stage('Check if everything is removed') {
+		steps {
+                	sh "oc get all -n ${project}"
+		}
+        }
+
+}
+}
